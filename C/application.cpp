@@ -198,6 +198,60 @@ void cell_locate_display(MDM_CELL_LOCATE& loc) {
     Serial.printlnf("https://www.google.com/maps?q=%s,%s Accuracy ~= %d meters\r\n", loc.lat, loc.lng, loc.uncertainty); ;
 }
 
+//
+//            retcode = cell_locate(_cell_locate, 10*1000); 
+//            Serial.printf("CELL TRIANGULATION returned: %d\r\n", retcode);
+//            if (retcode >= 8){
+//                cell_locate_display(_cell_locate);
+//            }
+//            else if (retcode == 0) {
+//                /* ret == 0, still waiting for the URC
+//                 * Check for cell locate response, and display it. */
+//                Serial.print("Waiting for URC ");
+//                while (cell_locate_in_progress(_cell_locate)) {
+//                    /* still waiting for URC */
+//                    if (cell_locate_get_response(_cell_locate)) {
+//                        cell_locate_display(_cell_locate);
+//                    }
+//                }
+//            }
+void read_cell_locate(){
+    int retcode;
+    retcode = cell_locate(_cell_locate, 10*1000); 
+    if (retcode >= 8){
+        Serial.print("Got INSTANT cellocate\r\n");
+        cell_locate_display(_cell_locate);
+    }
+    else if (retcode == 0) {
+        Serial.print("Waiting for cellocate timeout\r\n");
+        /* ret == 0, still waiting for the URC
+         * Check for cell locate response, and display it. */
+        while (cell_locate_in_progress(_cell_locate)) {
+            /* still waiting for URC */
+            if (cell_locate_get_response(_cell_locate)) {
+                cell_locate_display(_cell_locate);
+            }
+        }
+        Serial.printf("Done read_cell_locate()\r\n");
+    }
+}
+/**********************************************************/
+// Fuel Cell functions
+/**********************************************************/
+
+struct BATinfo{
+    float voltage; 
+    float percentCharge; 
+    };
+
+BATinfo battery;
+
+void readBattery(){
+    FuelGauge fuel;
+    battery.voltage = fuel.getVCell();
+    battery.percentCharge = fuel.getSoC();
+}
+
 
 /**********************************************************/
 // SMS functions
@@ -250,7 +304,7 @@ bool smsSend(const char* num, const char* buf)
     //Serial.printf("num: %s buf: %s",num,buf);
     //resp = Cellular.command(1000, "AT+CMGF=1\r\n", num);
     //Serial.printf("got (%d) on CMGF CMD \r\n",resp);
-    resp = Cellular.command(1000, "AT+CMGS=\"%s\",129\r\n", num);
+    resp = Cellular.command(1000, "AT+CMGS=\"%s\",145\r\n", num);
     if (RESP_PROMPT == resp) {
         //Serial.printf("got RESP_PROMPT (%d) in send\r\n",resp);
         resp = Cellular.command(10, "%s", buf);
@@ -412,7 +466,6 @@ void checkReadSMS() {
 /* This function is called once at start up ----------------------------------*/
 void setup()
 {
-    int resp;
     pinMode(D7, OUTPUT);
     digitalWrite(D7, LOW);
     Serial.begin(115200);
@@ -433,6 +486,10 @@ void setup()
 }
 
 /* This function loops forever --------------------------------------------*/
+int smsloggerCount=0;
+const char testpnum[32] = "+13069942790";
+char smslog[140] = "";
+int sendStatus;
 void loop()
 {
     static int retcode=0;
@@ -440,8 +497,20 @@ void loop()
     // Check for new SMS every 1 second, process if one is received.
     if (millis() - lastUpdate > 1000UL) {
         lastUpdate = millis();
-        Serial.printf("1 second CHECK\r\n");
+        //Serial.printf("1 second CHECK\r\n");
         checkUnreadSMS();
+        smsloggerCount++;
+        if (smsloggerCount > 300){
+            Serial.printf("SENDING LOG SMS\r\n");
+            read_cell_locate();
+            readBattery();
+            sprintf(smslog,"(%s,%s) Accuracy=%dMeters, Direction=%d, Speed=%d Voltage=%fV  Percent Charge=%f", _cell_locate.lat, _cell_locate.lng, _cell_locate.uncertainty, _cell_locate.direction, _cell_locate.speed, battery.voltage, battery.percentCharge);
+            //sprintf(smslog,"Accuracy=1337 Voltage=%fV  Percent Charge=%f", battery.voltage, battery.percentCharge);
+            Serial.printf("%s\r\n", smslog);
+            sendStatus=smsSend(testpnum, smslog);
+            Serial.printf("Send function returned %d\r\n",sendStatus);
+            smsloggerCount=0;
+        }
     }
 
     if (Serial.available() > 0)
@@ -463,6 +532,10 @@ void loop()
         else if (c == 'r') {
             //smsRead();
             checkUnreadSMS();
+        }
+        else if (c == 'b') {
+            readBattery();
+            Serial.printf("Voltage: %fV or %f% \r\n", battery.voltage, battery.percentCharge);
         }
         else if (c == 'R') {
             //smsRead();
@@ -563,12 +636,11 @@ void showHelp() {
     Serial.println("\r\nPress a key to run a command:"
                    "\r\n[l] list unread SMS"
                    "\r\n[L] list Read SMS"
-                   "\r\n[d] delete SMS (not implemented)"
-                   "\r\n[s] send SMS (not implemented)"
                    "\r\n[r] read unread SMS, do not delete or reply"
                    "\r\n[R] read already read SMS, delete and reply"
                    "\r\n[p] calculate and display celllocate"
                    "\r\n[a] send an AT command"
+                   "\r\n[b] Show battery info"
                    "\r\n[h] show this help menu\r\n");
 }
 
