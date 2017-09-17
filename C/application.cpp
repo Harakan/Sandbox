@@ -23,11 +23,14 @@
 
 PRODUCT_ID(PLATFORM_ID);
 PRODUCT_VERSION(2);
+bool CELL_ON=0;
 
 // ALL_LEVEL, TRACE_LEVEL, DEBUG_LEVEL, INFO_LEVEL, WARN_LEVEL, ERROR_LEVEL, PANIC_LEVEL, NO_LOG_LEVEL
 SerialDebugOutput debugOutput(115200, ALL_LEVEL);
 
-STARTUP(cellular_credentials_set("pda.bell.ca", "", "", NULL)); // BELL
+//STARTUP(cellular_credentials_set("pda.bell.ca", "", "", NULL)); // BELL
+STARTUP(cellular_credentials_set("rogers-core-appl1.apn", "", "", NULL)); // ROGERS
+//STARTUP(cellular_credentials_set("rogers-core-appl1.apn", "wapuser1", "wap", NULL)); // ROGERS U/P
 //STARTUP(cellular_credentials_set("broadband", "", "", NULL)); // AT&T
 
 //SYSTEM_MODE(AUTOMATIC);
@@ -252,6 +255,40 @@ void readBattery(){
     battery.percentCharge = fuel.getSoC();
 }
 
+/**********************************************************/
+// EEPROM functions
+/**********************************************************/
+
+//Offset: 10
+struct EEpromDat {
+  int version;
+  char name[10];
+}; //2B + 10+1 = 13B (23 next open)
+
+//Offset: 30
+struct EEpromWhitelist8{
+  bool valid[8];
+  char numbers[8][13];//'+19991234567\0'
+};
+//int whatever;
+
+EEpromDat globalEeprom = {-1,"sustextV0"};
+EEpromWhitelist8 whitelist;
+size_t _eeprom_length;
+
+void eepromInit(){
+    _eeprom_length = EEPROM.length();
+}
+
+void eepromWrite(){
+    globalEeprom.version=-2;
+    EEPROM.put(10,globalEeprom);
+}
+
+void eepromRead(){
+    EEPROM.get(10,globalEeprom);
+    Serial.printf("version: %d name: NA\r\n", globalEeprom.version);
+}
 
 /**********************************************************/
 // SMS functions
@@ -471,18 +508,17 @@ void setup()
     Serial.begin(115200);
     Cellular.on();
     digitalWrite(D7, HIGH);
-    //delay(500); //Give it time to warm up ARBITRARY
-    Cellular.connect();
-    while (Cellular.connecting()){
-        digitalWrite(D7, HIGH);
-        //delay(100);
-        digitalWrite(D7, LOW);
-        //delay(100);
+    //IF pin is set high, then connect?
+    if (CELL_ON){
+        Cellular.connect();
+        while (Cellular.connecting()){
+            digitalWrite(D7, HIGH);
+            //delay(100);
+            digitalWrite(D7, LOW);
+            //delay(100);
+        }
     }
-    //resp = Cellular.command(1000, "AT+CMGF=1\r\n");
-    //Serial.printf("Cellular connected, set mode to text: %d (-2==OK)\r\n",resp);
     digitalWrite(D7, LOW);
-
 }
 
 /* This function loops forever --------------------------------------------*/
@@ -500,7 +536,8 @@ void loop()
         //Serial.printf("1 second CHECK\r\n");
         checkUnreadSMS();
         smsloggerCount++;
-        if (smsloggerCount > 300){
+        //if (smsloggerCount > 300){
+        if (0){
             Serial.printf("SENDING LOG SMS\r\n");
             read_cell_locate();
             readBattery();
@@ -540,6 +577,12 @@ void loop()
         else if (c == 'R') {
             //smsRead();
             checkReadSMS();
+        }
+        else if (c == 'E') {
+            eepromWrite();
+        }
+        else if (c == 'e') {
+            eepromRead();
         }
         else if (c == 'd') {
             //smsDelete();
@@ -628,7 +671,6 @@ void processATcommand() {
                 Serial.print(c);
             }
         }
-        //Particle.process();
     }
 }
 
@@ -636,6 +678,8 @@ void showHelp() {
     Serial.println("\r\nPress a key to run a command:"
                    "\r\n[l] list unread SMS"
                    "\r\n[L] list Read SMS"
+                   "\r\n[e] Read from EEPROM"
+                   "\r\n[E] Write to EEPROM"
                    "\r\n[r] read unread SMS, do not delete or reply"
                    "\r\n[R] read already read SMS, delete and reply"
                    "\r\n[p] calculate and display celllocate"
