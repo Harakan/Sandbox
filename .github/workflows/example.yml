@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - example
+      - otherExample
 
 jobs:
   # First job - runs automatically
