@@ -1,0 +1,54 @@
+name: Example Manual Approval
+
+on:
+  push:
+    branches:
+      - example
+      - otherExample
+
+jobs:
+  # First job - runs automatically
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      message: ${{ steps.create.outputs.message }}
+    
+    steps:
+      - name: Create a file
+        id: create
+        run: |
+          echo "Hello from build job" > myfile.txt
+          cat myfile.txt
+          
+          # Set output for next job
+          MESSAGE="Build completed at $(date)"
+          echo "message=$MESSAGE" >> $GITHUB_OUTPUT
+          echo "Created message: $MESSAGE"
+      
+      - name: Upload file
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-artifact
+          path: myfile.txt
+  
+  # Second job - waits for manual approval
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    environment: manual-approval  # This creates the manual pause
+    
+    steps:
+      - name: Download the file
+        uses: actions/download-artifact@v4
+        with:
+          name: my-artifact
+      
+      - name: Echo the file contents
+        run: |
+          echo "===== File Contents ====="
+          cat myfile.txt
+          echo "========================"
+          
+          echo "Message from build job: ${{ needs.build.outputs.message }}"
+          
+          echo "This only runs after manual approval!"
